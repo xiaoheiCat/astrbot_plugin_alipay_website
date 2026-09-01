@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -28,9 +29,14 @@ from alipay.aop.api.util.SignatureUtils import get_sign_content, verify_with_rsa
 SANDBOX_GATEWAY = "https://openapi-sandbox.dl.alipaydev.com/gateway.do"
 PRODUCTION_GATEWAY = "https://openapi.alipay.com/gateway.do"
 ALIPAY_TIME_ZONE = ZoneInfo("Asia/Shanghai")
+MAX_ALIPAY_RESPONSE_CHARS = 1024 * 1024
 
 
 class AlipayConfigurationError(RuntimeError):
+    pass
+
+
+class AlipayResponseError(RuntimeError):
     pass
 
 
@@ -70,9 +76,7 @@ class AlipayGateway:
         self.credentials = credentials
         sdk_config = AlipayClientConfig()
         sdk_config.server_url = (
-            SANDBOX_GATEWAY
-            if credentials.environment == "sandbox"
-            else PRODUCTION_GATEWAY
+            SANDBOX_GATEWAY if credentials.environment == "sandbox" else PRODUCTION_GATEWAY
         )
         sdk_config.app_id = credentials.app_id
         sdk_config.app_private_key = credentials.app_private_key
@@ -107,7 +111,7 @@ class AlipayGateway:
         model = AlipayTradeQueryModel()
         model.out_trade_no = out_trade_no
         request = AlipayTradeQueryRequest(biz_model=model)
-        return await asyncio.to_thread(self._client.execute, request)
+        return await self._execute(request)
 
     async def refund(
         self, out_trade_no: str, refund_amount: Decimal, out_request_no: str
@@ -117,33 +121,31 @@ class AlipayGateway:
         model.refund_amount = format(refund_amount, ".2f")
         model.out_request_no = out_request_no
         request = AlipayTradeRefundRequest(biz_model=model)
-        return await asyncio.to_thread(self._client.execute, request)
+        return await self._execute(request)
 
-    async def refund_query(
-        self, out_trade_no: str, out_request_no: str
-    ) -> dict[str, Any]:
+    async def refund_query(self, out_trade_no: str, out_request_no: str) -> dict[str, Any]:
         model = AlipayTradeFastpayRefundQueryModel()
         model.out_trade_no = out_trade_no
         model.out_request_no = out_request_no
         request = AlipayTradeFastpayRefundQueryRequest(biz_model=model)
-        return await asyncio.to_thread(self._client.execute, request)
+        return await self._execute(request)
 
     async def close(self, out_trade_no: str) -> dict[str, Any]:
         model = AlipayTradeCloseModel()
         model.out_trade_no = out_trade_no
         request = AlipayTradeCloseRequest(biz_model=model)
-        return await asyncio.to_thread(self._client.execute, request)
+        return await self._execute(request)
+
+    async def _execute(self, request: Any) -> dict[str, Any]:
+        payload = await asyncio.to_thread(self._client.execute, request)
+        return parse_alipay_payload(payload)
 
     def verify_notification(self, params: dict[str, str]) -> bool:
         sign = params.get("sign", "")
         sign_type = params.get("sign_type", "")
         if not sign or sign_type.upper() != "RSA2":
             return False
-        unsigned = {
-            key: value
-            for key, value in params.items()
-            if key not in {"sign", "sign_type"}
-        }
+        unsigned = {key: value for key, value in params.items() if key not in {"sign", "sign_type"}}
         content = get_sign_content(unsigned).encode("utf-8")
         try:
             return verify_with_rsa(self.credentials.alipay_public_key, content, sign)
@@ -151,10 +153,34 @@ class AlipayGateway:
             return False
 
 
-def response_body(payload: dict[str, Any], method: str) -> dict[str, Any]:
+def parse_alipay_payload(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, bytes):
+        if len(payload) > MAX_ALIPAY_RESPONSE_CHARS:
+            raise AlipayResponseError("支付宝响应体过大")
+        try:
+            payload = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            raise AlipayResponseError("支付宝响应不是有效的 UTF-8") from None
+    if isinstance(payload, str):
+        if len(payload) > MAX_ALIPAY_RESPONSE_CHARS:
+            raise AlipayResponseError("支付宝响应体过大")
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            raise AlipayResponseError("支付宝响应不是有效的 JSON") from None
+    if not isinstance(payload, dict):
+        raise AlipayResponseError("支付宝响应必须是 JSON 对象")
+    return payload
+
+
+def response_body(payload: Any, method: str) -> dict[str, Any]:
+    payload = parse_alipay_payload(payload)
     key = method.replace(".", "_") + "_response"
     value = payload.get(key)
-    return value if isinstance(value, dict) else {}
+    if isinstance(value, dict):
+        return value
+    # 官方 Python SDK 验签后会剥离外层响应键，只返回响应节点的 JSON 字符串。
+    return payload if "code" in payload else {}
 
 
 def format_alipay_time_expire(expires_at: datetime) -> str:

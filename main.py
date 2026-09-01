@@ -74,7 +74,7 @@ CREATE_LIMITS = OrderCreationLimits(
     PLUGIN_NAME,
     "xiaoheiCat",
     "为 AstrBot Agent 提供支付宝 AI 网页应用收款工具",
-    "1.0.5",
+    "1.0.6",
 )
 class AlipayWebsitePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):

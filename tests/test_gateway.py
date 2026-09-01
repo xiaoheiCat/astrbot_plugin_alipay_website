@@ -10,7 +10,9 @@ from alipay_gateway import (
     AlipayConfigurationError,
     AlipayCredentials,
     AlipayGateway,
+    AlipayResponseError,
     format_alipay_time_expire,
+    parse_alipay_payload,
     response_body,
 )
 
@@ -55,6 +57,38 @@ def test_response_body_selects_official_response_node() -> None:
         {"alipay_trade_query_response": {"code": "10000"}},
         "alipay.trade.query",
     ) == {"code": "10000"}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"code":"10000","trade_status":"TRADE_SUCCESS"}',
+        b'{"code":"10000","trade_status":"TRADE_SUCCESS"}',
+    ],
+)
+def test_response_body_accepts_real_sdk_json_payloads(payload: str | bytes) -> None:
+    assert response_body(payload, "alipay.trade.query") == {
+        "code": "10000",
+        "trade_status": "TRADE_SUCCESS",
+    }
+
+
+@pytest.mark.parametrize("payload", ["", "not-json", "[]", b"\xff", None])
+def test_malformed_sdk_payloads_fail_without_exposing_content(payload: object) -> None:
+    with pytest.raises(AlipayResponseError, match="支付宝响应"):
+        parse_alipay_payload(payload)
+
+
+@pytest.mark.asyncio
+async def test_gateway_execute_normalizes_sdk_string_response() -> None:
+    class FakeClient:
+        def execute(self, _request):
+            return '{"code":"10000"}'
+
+    gateway = object.__new__(AlipayGateway)
+    gateway._client = FakeClient()
+
+    assert await gateway._execute(object()) == {"code": "10000"}
 
 
 def test_absolute_expiry_is_formatted_in_alipay_timezone() -> None:
