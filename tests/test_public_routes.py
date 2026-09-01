@@ -116,10 +116,13 @@ async def test_registration_waits_for_dashboard_without_fixed_timeout(monkeypatc
 def test_payment_form_csp_allows_alipay_cashier_redirects(monkeypatch) -> None:
     module = load_public_routes(monkeypatch, FakeApp())
 
-    response = module.payment_form_page("<form></form>")
+    response = module.payment_form_page("<form></form>", "https://astrpay-api.example/alipay")
     policy = response.headers["Content-Security-Policy"]
 
     assert "style-src 'unsafe-inline'" in policy
-    assert "https://openapi-sandbox.dl.alipaydev.com" in policy
-    assert "https://alipay.com" in policy
+    assert "https://openapi.alipay.com" in policy
     assert "https://*.alipay.com" in policy
+    assert "https://openapi-sandbox.dl.alipaydev.com" in policy
+    assert "https://*.alipaydev.com" in policy
+    assert "https://astrpay-api.example" in policy
+    assert "https:" not in policy.split("form-action ", 1)[1].split()

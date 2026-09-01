@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import html
 from collections.abc import Awaitable, Callable
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
@@ -96,8 +97,21 @@ background:#1677ff;color:white;font-size:16px}}small{{color:#6b7280}}</style></h
     )
 
 
-def payment_form_page(signed_form: str) -> HTMLResponse:
+def payment_form_page(signed_form: str, callback_base: str) -> HTMLResponse:
     # signed_form 由支付宝官方 SDK 生成；仅允许其自动提交到支付宝网关。
+    callback_parts = urlsplit(callback_base)
+    if callback_parts.scheme not in {"http", "https"} or not callback_parts.netloc:
+        raise ValueError("支付回调地址无效")
+    callback_origin = urlunsplit((callback_parts.scheme, callback_parts.netloc, "", "", ""))
+    form_action_sources = (
+        "https://openapi.alipay.com",
+        "https://alipay.com",
+        "https://*.alipay.com",
+        "https://openapi-sandbox.dl.alipaydev.com",
+        "https://alipaydev.com",
+        "https://*.alipaydev.com",
+        callback_origin,
+    )
     document = f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>正在前往支付宝</title></head>
@@ -110,9 +124,7 @@ def payment_form_page(signed_form: str) -> HTMLResponse:
             "Referrer-Policy": "no-referrer",
             "Content-Security-Policy": (
                 "default-src 'none'; base-uri 'none'; script-src 'unsafe-inline'; "
-                "style-src 'unsafe-inline'; form-action https://openapi.alipay.com "
-                "https://openapi-sandbox.dl.alipaydev.com https://alipay.com "
-                "https://*.alipay.com"
+                f"style-src 'unsafe-inline'; form-action {' '.join(form_action_sources)}"
             ),
         },
     )

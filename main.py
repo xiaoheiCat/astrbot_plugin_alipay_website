@@ -74,7 +74,7 @@ CREATE_LIMITS = OrderCreationLimits(
     PLUGIN_NAME,
     "xiaoheiCat",
     "为 AstrBot Agent 提供支付宝 AI 网页应用收款工具",
-    "1.0.4",
+    "1.0.5",
 )
 class AlipayWebsitePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -368,7 +368,7 @@ class AlipayWebsitePlugin(Star):
                     "<h1>订单已过期</h1><p>请返回聊天重新创建订单。</p>",
                     status_code=410,
                 )
-            return payment_form_page(form)
+            return payment_form_page(form, base)
         except Exception:
             logger.exception("生成支付宝支付表单失败，订单号：%s", order.out_trade_no)
             return page(
