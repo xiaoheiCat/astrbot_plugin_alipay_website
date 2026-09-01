@@ -74,7 +74,7 @@ CREATE_LIMITS = OrderCreationLimits(
     PLUGIN_NAME,
     "xiaoheiCat",
     "为 AstrBot Agent 提供支付宝 AI 网页应用收款工具",
-    "1.0.6",
+    "1.0.7",
 )
 class AlipayWebsitePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -576,8 +576,12 @@ class AlipayWebsitePlugin(Star):
         try:
             if order is None:
                 return
-            await inject_payment_reminder(self.context, order.session, out_trade_no, mode)
-            success = True
+            success = await inject_payment_reminder(self.context, order.session, out_trade_no, mode)
+            if not success:
+                logger.warning(
+                    "支付宝付款提醒未实际发送，已恢复为待重试状态，订单号：%s",
+                    out_trade_no,
+                )
         except Exception:
             logger.exception("注入支付宝付款提醒失败，订单号：%s", out_trade_no)
         finally:

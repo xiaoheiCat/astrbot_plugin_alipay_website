@@ -20,7 +20,7 @@ from astrbot.core.utils.config_number import coerce_int_config
 from astrbot.core.utils.history_saver import persist_agent_history
 
 
-async def inject_payment_reminder(context, session_str: str, out_trade_no: str, mode: str) -> None:
+async def inject_payment_reminder(context, session_str: str, out_trade_no: str, mode: str) -> bool:
     reminder = (
         "<system_reminder>用户已完成付款，商户订单号："
         f"{out_trade_no}。请使用 verify_alipay_bill 复核支付状态。</system_reminder>"
@@ -56,8 +56,10 @@ async def inject_payment_reminder(context, session_str: str, out_trade_no: str, 
         context.get_llm_tool_manager().get_builtin_tool(SendMessageToUserTool)
     )
     req.system_prompt += (
-        "这是经过支付服务端验证的一次性付款提醒。请复核订单状态，并在需要主动告知用户时"
-        "调用 send_message_to_user；不要把 system_reminder 标签原样发送给用户。"
+        "这是经过支付服务端验证的一次性付款提醒。请复核订单状态。你必须调用 "
+        "send_message_to_user 向当前会话发送付款完成提醒，并将 session 参数留空；仅输出普通"
+        "文本不会送达用户。只有该工具明确返回发送成功才算完成；如果工具返回错误，请修正参数"
+        "后重试。不要把 system_reminder 标签原样发送给用户。"
     )
 
     if mode == "user_message":
@@ -85,21 +87,49 @@ async def inject_payment_reminder(context, session_str: str, out_trade_no: str, 
             ],
         )
     else:
-        return
+        return False
 
     result = await build_main_agent(
         event=event, plugin_context=context, config=build_config, req=req
     )
     if not result:
         raise RuntimeError("当前会话没有可用的 LLM Provider")
-    async for _ in result.agent_runner.step_until_done(max_steps):
-        pass
-    llm_response = result.agent_runner.get_final_llm_resp()
-    await persist_agent_history(
-        context.conversation_manager,
-        event=event,
-        req=req,
-        summary_note=f"[Alipay] verified payment callback for {out_trade_no}",
-    )
-    if not llm_response:
-        logger.warning("支付宝付款提醒已注入，但 Agent 没有产生最终响应。")
+    try:
+        async for _ in result.agent_runner.step_until_done(max_steps):
+            pass
+        llm_response = result.agent_runner.get_final_llm_resp()
+    except Exception:
+        if not event._has_send_oper:
+            raise
+        logger.exception(
+            "支付宝付款提醒已实际发送，但 Agent 后续执行失败，订单号：%s",
+            out_trade_no,
+        )
+        llm_response = None
+
+    delivered = bool(event._has_send_oper)
+    try:
+        await persist_agent_history(
+            context.conversation_manager,
+            event=event,
+            req=req,
+            summary_note=f"[Alipay] verified payment callback for {out_trade_no}",
+        )
+    except Exception:
+        logger.exception("保存支付宝付款提醒 Agent 历史失败，订单号：%s", out_trade_no)
+
+    if delivered:
+        logger.info("支付宝付款提醒已发送到原会话，订单号：%s", out_trade_no)
+        return True
+    if llm_response:
+        logger.warning(
+            "支付宝付款提醒 Agent 仅产生了普通回复，未调用 send_message_to_user；"
+            "订单将在维护任务中重试，订单号：%s",
+            out_trade_no,
+        )
+    else:
+        logger.warning(
+            "支付宝付款提醒 Agent 未产生响应且未发送消息；订单将在维护任务中重试，订单号：%s",
+            out_trade_no,
+        )
+    return False

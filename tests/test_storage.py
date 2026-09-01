@@ -130,6 +130,25 @@ async def test_notification_and_reminder_are_idempotent(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_failed_reminder_returns_to_pending_and_can_be_reclaimed(tmp_path) -> None:
+    store = OrderStore(tmp_path / "orders.sqlite3")
+    await store.initialize()
+    order = make_order(store)
+    await store.create(order, TEST_LIMITS)
+    assert await store.apply_notification(
+        "notify-retry", order.out_trade_no, "TRADE_SUCCESS", "trade-1"
+    )
+
+    assert await store.claim_reminder(order.out_trade_no)
+    await store.finish_reminder(order.out_trade_no, False)
+
+    pending = await store.get(order.out_trade_no)
+    assert pending is not None
+    assert pending.reminder_state == "pending"
+    assert await store.claim_reminder(order.out_trade_no)
+
+
+@pytest.mark.asyncio
 async def test_concurrent_creation_cannot_cross_atomic_session_limit(tmp_path) -> None:
     store = OrderStore(tmp_path / "orders.sqlite3")
     await store.initialize()
