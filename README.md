@@ -6,7 +6,7 @@
 
 本插件为 AstrBot Agent 注册两个内置参数固定的工具：
 
-- `create_alipay_bill(cny, message)`：创建 `0.01`–`50.00` 元人民币订单，先发送一句话，再发送支付二维码。
+- `create_alipay_bill(cny, message, subject)`：创建 `0.01`–`50.00` 元人民币订单，先发送一句话，再发送支付二维码；`subject` 是 AI 填写的 1–10 字符支付宝订单标题/转账备注。
 - `verify_alipay_bill(out_trade_no)`：只允许查询当前会话创建的订单，并直接向支付宝复核状态。
 
 二维码指向 AstrBot 自身的公开落地页。买家可在电脑网页或手机浏览器打开页面，再进入支付宝收银台。公开路由无需管理员登录：

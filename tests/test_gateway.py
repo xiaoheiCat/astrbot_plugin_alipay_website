@@ -92,7 +92,7 @@ async def test_page_pay_form_uses_absolute_expiry(monkeypatch) -> None:
     result = await gateway.page_pay_form(
         out_trade_no="AIP20260901120000000000000000",
         amount=Decimal("1.00"),
-        subject="AI Bot 收款",
+        subject="午餐费",
         expires_at=datetime(2026, 9, 1, 12, 15, tzinfo=UTC),
         notify_url="https://bot.example/alipay/notify",
         return_url="https://bot.example/alipay/return",
@@ -100,6 +100,7 @@ async def test_page_pay_form_uses_absolute_expiry(monkeypatch) -> None:
 
     assert result == "signed-form"
     request = captured["request"]
+    assert request.biz_model.subject == "午餐费"
     assert request.biz_model.time_expire == "2026-09-01 20:15:00"
     assert not hasattr(request.biz_model, "timeout_express")
     assert captured["method"] == "POST"

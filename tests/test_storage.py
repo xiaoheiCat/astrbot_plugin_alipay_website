@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -35,6 +36,7 @@ def make_order(
         session="platform:FriendMessage:user",
         amount="1.00",
         message="请支付",
+        subject="午餐费",
         token_hash=store.token_hash(token),
         status="CREATED",
         trade_no=None,
@@ -56,6 +58,53 @@ async def test_token_is_hashed_and_session_scope_is_enforced(tmp_path) -> None:
     assert await store.get_by_token("secret-token") == order
     assert await store.get(order.out_trade_no, "another-session") is None
     assert "secret-token" not in store.path.read_bytes().decode("latin1")
+
+
+@pytest.mark.asyncio
+async def test_existing_database_adds_subject_with_safe_default(tmp_path) -> None:
+    path = tmp_path / "orders.sqlite3"
+    now = datetime.now(UTC)
+    with sqlite3.connect(path) as db:
+        db.execute(
+            """CREATE TABLE orders (
+                out_trade_no TEXT PRIMARY KEY,
+                session TEXT NOT NULL,
+                amount TEXT NOT NULL,
+                message TEXT NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL DEFAULT 'CREATED',
+                trade_no TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                paid_at TEXT,
+                reminder_state TEXT NOT NULL DEFAULT 'pending',
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        db.execute(
+            """INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "AIP20260901120000000000000001",
+                "platform:FriendMessage:user",
+                "1.00",
+                "请支付",
+                OrderStore.token_hash("legacy-token"),
+                "CREATED",
+                None,
+                now.isoformat(),
+                (now + timedelta(minutes=15)).isoformat(),
+                None,
+                "pending",
+                now.isoformat(),
+            ),
+        )
+
+    store = OrderStore(path)
+    await store.initialize()
+
+    order = await store.get("AIP20260901120000000000000001")
+    assert order is not None
+    assert order.subject == "AI Bot 收款"
 
 
 @pytest.mark.asyncio

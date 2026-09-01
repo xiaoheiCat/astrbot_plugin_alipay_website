@@ -21,6 +21,7 @@ from fastapi import Request
 from starlette.requests import ClientDisconnect
 
 from .alipay_gateway import AlipayCredentials, AlipayGateway, response_body
+from .order_fields import validate_subject
 from .public_routes import PublicRouteRegistrar, alipay_ack, page, payment_form_page
 from .reminder import inject_payment_reminder
 from .resource_limits import (
@@ -73,7 +74,7 @@ CREATE_LIMITS = OrderCreationLimits(
     PLUGIN_NAME,
     "xiaoheiCat",
     "为 AstrBot Agent 提供支付宝 AI 网页应用收款工具",
-    "1.0.2",
+    "1.0.4",
 )
 class AlipayWebsitePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -105,8 +106,8 @@ class AlipayWebsitePlugin(Star):
             FunctionTool(
                 name="create_alipay_bill",
                 description=(
-                    "创建人民币支付宝收款订单。金额必须为 0.01 到 50.00 元；创建后会先发送 message，"
-                    "再发送支付二维码。"
+                    "创建人民币支付宝收款订单。金额必须为 0.01 到 50.00 元；"
+                    "创建后会先发送 message，再发送支付二维码；subject 是支付宝订单标题。"
                 ),
                 parameters={
                     "type": "object",
@@ -124,8 +125,14 @@ class AlipayWebsitePlugin(Star):
                             "maxLength": 200,
                             "description": "发送二维码前先发给用户的一句话消息",
                         },
+                        "subject": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 10,
+                            "description": "支付宝订单标题/转账备注，不能换行",
+                        },
                     },
-                    "required": ["cny", "message"],
+                    "required": ["cny", "message", "subject"],
                     "additionalProperties": False,
                 },
                 handler=self.create_alipay_bill,
@@ -193,13 +200,18 @@ class AlipayWebsitePlugin(Star):
         return urlunsplit((parts.scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
 
     async def create_alipay_bill(
-        self, event: AstrMessageEvent, cny: float | str, message: str
+        self,
+        event: AstrMessageEvent,
+        cny: float | str,
+        message: str,
+        subject: str,
     ) -> str:
         if not await self._create_capacity.acquire():
             return "收款服务当前繁忙，请稍后再创建订单。"
         try:
             amount = self._parse_amount(cny)
             message = self._validate_message(message)
+            subject = validate_subject(subject)
             self._gateway()
             base = self._callback_base()
             ttl = self._ttl_minutes()
@@ -214,6 +226,7 @@ class AlipayWebsitePlugin(Star):
                 session=event.unified_msg_origin,
                 amount=format(amount, ".2f"),
                 message=message,
+                subject=subject,
                 token_hash=self.store.token_hash(token),
                 status="CREATED",
                 trade_no=None,
@@ -240,7 +253,8 @@ class AlipayWebsitePlugin(Star):
                 logger.warning("订单 %s 已创建，但平台消息可能未全部发送成功。", out_trade_no)
             return (
                 f"支付宝订单已创建。商户订单号：{out_trade_no}；金额：{order.amount} 元；"
-                f"有效期：{ttl} 分钟。消息和二维码已按顺序发送。"
+                f"转账备注：{order.subject}；有效期：{ttl} 分钟。"
+                "消息和二维码已按顺序发送。"
             )
         finally:
             await self._create_capacity.release()
@@ -330,7 +344,7 @@ class AlipayWebsitePlugin(Star):
                 form = await gateway.page_pay_form(
                     out_trade_no=order.out_trade_no,
                     amount=Decimal(order.amount),
-                    subject="AI Bot 收款",
+                    subject=order.subject,
                     expires_at=expires_at,
                     notify_url=f"{base}/alipay/notify",
                     return_url=f"{base}/alipay/return",

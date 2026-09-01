@@ -109,8 +109,10 @@ def payment_form_page(signed_form: str) -> HTMLResponse:
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "no-referrer",
             "Content-Security-Policy": (
-                "default-src 'none'; script-src 'unsafe-inline'; "
-                "form-action https://openapi.alipay.com https://openapi-sandbox.dl.alipaydev.com"
+                "default-src 'none'; base-uri 'none'; script-src 'unsafe-inline'; "
+                "style-src 'unsafe-inline'; form-action https://openapi.alipay.com "
+                "https://openapi-sandbox.dl.alipaydev.com https://alipay.com "
+                "https://*.alipay.com"
             ),
         },
     )

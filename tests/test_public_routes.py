@@ -28,13 +28,20 @@ class FakeApp:
         self.router.routes.append(FakeRoute(path))
 
 
+class FakeHTTPResponse:
+    def __init__(self, content=None, *, status_code=200, headers=None):
+        self.content = content
+        self.status_code = status_code
+        self.headers = headers or {}
+
+
 def load_public_routes(monkeypatch: pytest.MonkeyPatch, app: FakeApp):
     fastapi = types.ModuleType("fastapi")
     fastapi.Request = object
     responses = types.ModuleType("fastapi.responses")
-    responses.HTMLResponse = type("HTMLResponse", (), {})
-    responses.PlainTextResponse = type("PlainTextResponse", (), {})
-    responses.Response = type("Response", (), {})
+    responses.HTMLResponse = FakeHTTPResponse
+    responses.PlainTextResponse = FakeHTTPResponse
+    responses.Response = FakeHTTPResponse
     routing = types.ModuleType("starlette.routing")
     routing.BaseRoute = object
 
@@ -104,3 +111,15 @@ async def test_registration_waits_for_dashboard_without_fixed_timeout(monkeypatc
     server.APP = types.SimpleNamespace(_app=app)
     await task
     assert app.router.routes[0].path == "/alipay"
+
+
+def test_payment_form_csp_allows_alipay_cashier_redirects(monkeypatch) -> None:
+    module = load_public_routes(monkeypatch, FakeApp())
+
+    response = module.payment_form_page("<form></form>")
+    policy = response.headers["Content-Security-Policy"]
+
+    assert "style-src 'unsafe-inline'" in policy
+    assert "https://openapi-sandbox.dl.alipaydev.com" in policy
+    assert "https://alipay.com" in policy
+    assert "https://*.alipay.com" in policy

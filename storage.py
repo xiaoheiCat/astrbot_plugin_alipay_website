@@ -13,6 +13,7 @@ NONPAID_TERMINAL_STATUSES = frozenset({"CLOSED", "EXPIRED", "TRADE_CLOSED"})
 KNOWN_STATUSES = frozenset(
     {"CREATED", "WAIT_BUYER_PAY", *NONPAID_TERMINAL_STATUSES, *PAID_STATUSES}
 )
+DEFAULT_SUBJECT = "AI Bot 收款"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,7 @@ class Order:
     session: str
     amount: str
     message: str
+    subject: str
     token_hash: str
     status: str
     trade_no: str | None
@@ -81,6 +83,7 @@ class OrderStore:
                     session TEXT NOT NULL,
                     amount TEXT NOT NULL,
                     message TEXT NOT NULL,
+                    subject TEXT NOT NULL,
                     token_hash TEXT NOT NULL UNIQUE,
                     status TEXT NOT NULL DEFAULT 'CREATED',
                     trade_no TEXT,
@@ -110,6 +113,13 @@ class OrderStore:
                     ON orders(session, status, expires_at);
                 """
             )
+            async with db.execute("PRAGMA table_info(orders)") as cursor:
+                columns = {str(row[1]) for row in await cursor.fetchall()}
+            if "subject" not in columns:
+                await db.execute(
+                    "ALTER TABLE orders ADD COLUMN subject "
+                    "TEXT NOT NULL DEFAULT 'AI Bot 收款'"
+                )
             # 修复旧版本中已记录付款时间、但状态被陈旧查询降级的数据。
             await db.execute(
                 """UPDATE orders SET status='TRADE_SUCCESS'
@@ -179,14 +189,16 @@ class OrderStore:
 
                 await db.execute(
                     """INSERT INTO orders (
-                           out_trade_no, session, amount, message, token_hash, status,
-                           trade_no, created_at, expires_at, paid_at, reminder_state, updated_at
-                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                           out_trade_no, session, amount, message, subject, token_hash,
+                           status, trade_no, created_at, expires_at, paid_at,
+                           reminder_state, updated_at
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         order.out_trade_no,
                         order.session,
                         order.amount,
                         order.message,
+                        order.subject,
                         order.token_hash,
                         order.status,
                         order.trade_no,
