@@ -1,0 +1,5 @@
+# AstrBot v4.27.4 only discovers plugin dependencies from this file.
+# Keep these direct requirements identical to project.dependencies in pyproject.toml.
+aiosqlite>=0.21.0
+alipay-sdk-python==3.7.1160
+qrcode[pil]>=8.2

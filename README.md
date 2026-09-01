@@ -17,21 +17,21 @@
 
 ## 安装与依赖
 
-项目使用 `pyproject.toml` 与 `uv.lock` 管理依赖：
+项目使用 `pyproject.toml` 与 `uv.lock` 管理、锁定依赖：
 
 ```bash
 uv sync --frozen
 ```
 
-AstrBot 是运行宿主，不作为插件依赖重复安装。插件运行依赖为 `alipay-sdk-python`、`aiosqlite` 和 `qrcode[pil]`。部署时应让 uv 将这些依赖安装到 AstrBot 实际使用的 Python 环境，例如：
+AstrBot 是运行宿主，不作为插件依赖重复安装。插件运行依赖为 `alipay-sdk-python`、`aiosqlite` 和 `qrcode[pil]`。
+
+AstrBot v4.27.4 的插件安装器只识别插件根目录的 `requirements.txt`，因此仓库保留该文件作为安装器兼容清单；测试会检查它与 `pyproject.toml` 的直接依赖完全一致。版本解析与开发环境仍以 `pyproject.toml` 和 `uv.lock` 为准。通过 WebUI 安装插件时，AstrBot 会自动安装缺失依赖。
+
+手动部署时，也可以让 uv 把兼容清单安装进 AstrBot 实际使用的 Python 环境：
 
 ```bash
-uv export --frozen --no-dev --no-emit-project -o requirements.txt
-uv pip install --python /path/to/AstrBot/.venv/bin/python --require-hashes -r requirements.txt
-rm requirements.txt
+uv pip install --python /path/to/AstrBot/.venv/bin/python -r requirements.txt
 ```
-
-`requirements.txt` 只作为向 AstrBot 运行环境导入锁定依赖的中间文件，安装后应删除；仓库仍以 `pyproject.toml` 和 `uv.lock` 为唯一依赖来源。
 
 ## 配置
 

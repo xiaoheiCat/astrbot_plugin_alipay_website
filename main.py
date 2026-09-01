@@ -71,9 +71,9 @@ CREATE_LIMITS = OrderCreationLimits(
 
 @register(
     PLUGIN_NAME,
-    "xiaoheicat",
+    "xiaoheiCat",
     "为 AstrBot Agent 提供支付宝 AI 网页应用收款工具",
-    "1.0.0",
+    "1.0.1",
 )
 class AlipayWebsitePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -105,7 +105,7 @@ class AlipayWebsitePlugin(Star):
             FunctionTool(
                 name="create_alipay_bill",
                 description=(
-                    "创建人民币支付宝订单。金额必须为 0.01 到 50.00 元；创建后会先发送 message，"
+                    "创建人民币支付宝收款订单。金额必须为 0.01 到 50.00 元；创建后会先发送 message，"
                     "再发送支付二维码。"
                 ),
                 parameters={
@@ -307,7 +307,7 @@ class AlipayWebsitePlugin(Star):
         if order is None:
             return page("链接无效", "<h1>支付链接无效</h1>", status_code=404)
         if order.status in PAID_STATUSES or order.paid_at is not None:
-            return page("已支付", "<h1>付款已完成</h1><p>可以关闭此页面。</p>")
+            return page("已支付", "<h1>付款已完成</h1><p>现在可以安全的关闭此页面了。</p>")
         expires_at = datetime.fromisoformat(order.expires_at)
         if order.status not in {"CREATED", "WAIT_BUYER_PAY"} or expires_at <= datetime.now(
             UTC
