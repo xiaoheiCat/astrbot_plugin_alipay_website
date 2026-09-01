@@ -1,6 +1,6 @@
 name: astrbot_plugin_alipay_website
 display_name: 支付宝 AI 网页应用收款
 desc: 为 AstrBot Agent 提供创建与核验支付宝人民币网页订单的工具。
-version: v1.0.2
+version: v1.0.3
 author: xiaoheiCat
 repo: "https://github.com/xiaoheiCat/astrbot_plugin_alipay_website"

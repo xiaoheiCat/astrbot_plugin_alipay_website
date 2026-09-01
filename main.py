@@ -342,7 +342,7 @@ class AlipayWebsitePlugin(Star):
                 if current is not None and (
                     current.status in PAID_STATUSES or current.paid_at is not None
                 ):
-                    return page("已支付", "<h1>付款已完成</h1><p>可以关闭此页面。</p>")
+                    return page("已支付", "<h1>付款已完成</h1><p>现在可以安全的关闭此页面了。</p>")
                 return page(
                     "已过期",
                     "<h1>订单已过期</h1><p>请返回聊天重新创建订单。</p>",

@@ -1,6 +1,6 @@
 [project]
 name = "astrbot-plugin-alipay-website"
-version = "1.0.2"
+version = "1.0.3"
 description = "AstrBot 支付宝 AI 网页应用收款插件"
 readme = "README.md"
 requires-python = ">=3.12"

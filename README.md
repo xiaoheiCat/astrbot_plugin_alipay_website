@@ -37,6 +37,8 @@ uv pip install --python /path/to/AstrBot/.venv/bin/python -r requirements.txt
 
 先在 AstrBot 全局设置中配置“对外可达的回调接口地址”（`callback_api_base`），例如 `https://bot.example.com`。插件会在该地址后追加固定公开路由；生产环境强制 HTTPS。
 
+可用 `GET /alipay` 检查公开路由：未携带令牌时应显示插件的“支付链接无效”页面，而不是 AstrBot 面板的通用 404。反向代理只需公开 `/alipay` 及其子路径，无需开放面板登录接口。
+
 插件设置包括：
 
 - 环境：`sandbox` 或 `production`；
