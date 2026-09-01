@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -45,37 +43,25 @@ class AlipayCredentials:
     seller_id: str
 
     @classmethod
-    def load(cls, config: dict[str, Any], project_dir: Path) -> AlipayCredentials:
+    def load(cls, config: dict[str, Any]) -> AlipayCredentials:
         environment = str(config.get("environment", "sandbox")).strip().lower()
-        if environment == "sandbox":
-            path = project_dir / ".alipay-sandbox.json"
-            try:
-                document = json.loads(path.read_text(encoding="utf-8"))
-                app = document["appIds"][0]
-                values = {
-                    "app_id": app["appId"],
-                    "app_private_key": app["appPrivatePkcsKey"],
-                    "alipay_public_key": app["alipayPublicKey"],
-                    "seller_id": app.get("sellerId") or app.get("pid"),
-                }
-            except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
-                raise AlipayConfigurationError(
-                    "沙箱配置不可用，请先用支付宝 AI 付 Skill 创建并验证 .alipay-sandbox.json"
-                ) from exc
-        elif environment == "production":
-            values = {
-                "app_id": config.get("app_id"),
-                "app_private_key": config.get("app_private_key"),
-                "alipay_public_key": config.get("alipay_public_key"),
-                "seller_id": config.get("seller_id"),
-            }
-        else:
+        if environment not in {"sandbox", "production"}:
             raise AlipayConfigurationError("environment 只能是 sandbox 或 production")
 
-        normalized = {key: str(value or "").strip() for key, value in values.items()}
+        normalized = {
+            "app_id": config.get("app_id"),
+            "app_private_key": config.get("app_private_key"),
+            "alipay_public_key": config.get("alipay_public_key"),
+            "seller_id": config.get("seller_id"),
+        }
+        normalized = {key: str(value or "").strip() for key, value in normalized.items()}
         missing = [key for key, value in normalized.items() if not value]
         if missing:
-            raise AlipayConfigurationError("支付宝配置缺少字段：" + ", ".join(missing))
+            raise AlipayConfigurationError(
+                "支付宝配置缺少字段："
+                + ", ".join(missing)
+                + "；请在插件配置页填写当前环境的完整凭据。"
+            )
         return cls(environment=environment, **normalized)
 
 

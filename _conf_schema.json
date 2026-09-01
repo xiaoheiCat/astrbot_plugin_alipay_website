@@ -4,27 +4,27 @@
     "type": "string",
     "options": ["sandbox", "production"],
     "default": "sandbox",
-    "hint": "sandbox 直接读取插件目录中由支付宝 AI 付 Skill 生成的 .alipay-sandbox.json；production 使用下方配置。"
+    "hint": "选择支付宝网关环境；两种环境都使用下方配置的对应凭据。"
   },
   "app_id": {
-    "description": "支付宝应用 App ID（生产环境）",
+    "description": "支付宝应用 App ID（当前环境）",
     "type": "string",
     "default": ""
   },
   "app_private_key": {
-    "description": "应用私钥 PKCS#1（生产环境）",
+    "description": "应用私钥 PKCS#1（当前环境）",
     "type": "text",
     "default": "",
     "secret": true
   },
   "alipay_public_key": {
-    "description": "支付宝公钥（生产环境）",
+    "description": "支付宝公钥（当前环境）",
     "type": "text",
     "default": "",
     "secret": true
   },
   "seller_id": {
-    "description": "支付宝商户 PID / seller_id（生产环境）",
+    "description": "支付宝商户 PID / seller_id（当前环境）",
     "type": "string",
     "default": ""
   },

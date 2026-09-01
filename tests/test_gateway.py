@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
@@ -17,33 +15,30 @@ from alipay_gateway import (
 )
 
 
-def test_load_sandbox_uses_same_app_entry(tmp_path: Path) -> None:
-    config = {
-        "appIds": [
-            {
-                "appId": "sandbox-app",
-                "appPrivatePkcsKey": "private-key",
-                "alipayPublicKey": "public-key",
-                "pid": "2088000000000000",
-            }
-        ]
-    }
-    (tmp_path / ".alipay-sandbox.json").write_text(json.dumps(config), encoding="utf-8")
+def test_sandbox_credentials_are_loaded_from_plugin_config() -> None:
+    credentials = AlipayCredentials.load(
+        {
+            "environment": "sandbox",
+            "app_id": "configured-sandbox-app",
+            "app_private_key": "configured-private-key",
+            "alipay_public_key": "configured-public-key",
+            "seller_id": "2088000000000001",
+        }
+    )
 
-    credentials = AlipayCredentials.load({"environment": "sandbox"}, tmp_path)
-
-    assert credentials.app_id == "sandbox-app"
-    assert credentials.app_private_key == "private-key"
-    assert credentials.alipay_public_key == "public-key"
-    assert credentials.seller_id == "2088000000000000"
+    assert credentials.environment == "sandbox"
+    assert credentials.app_id == "configured-sandbox-app"
+    assert credentials.app_private_key == "configured-private-key"
+    assert credentials.alipay_public_key == "configured-public-key"
+    assert credentials.seller_id == "2088000000000001"
 
 
-def test_missing_sandbox_config_fails_closed(tmp_path: Path) -> None:
-    with pytest.raises(AlipayConfigurationError):
-        AlipayCredentials.load({"environment": "sandbox"}, tmp_path)
+def test_missing_sandbox_config_fails_closed() -> None:
+    with pytest.raises(AlipayConfigurationError, match="插件配置页"):
+        AlipayCredentials.load({"environment": "sandbox"})
 
 
-def test_production_requires_all_security_fields(tmp_path: Path) -> None:
+def test_production_requires_all_security_fields() -> None:
     with pytest.raises(AlipayConfigurationError, match="seller_id"):
         AlipayCredentials.load(
             {
@@ -51,8 +46,7 @@ def test_production_requires_all_security_fields(tmp_path: Path) -> None:
                 "app_id": "app",
                 "app_private_key": "private",
                 "alipay_public_key": "public",
-            },
-            tmp_path,
+            }
         )
 
 

@@ -40,11 +40,11 @@ uv pip install --python /path/to/AstrBot/.venv/bin/python -r requirements.txt
 插件设置包括：
 
 - 环境：`sandbox` 或 `production`；
-- 生产 App ID、PKCS#1 应用私钥、支付宝公钥、`seller_id`；
+- 当前环境对应的 App ID、PKCS#1 应用私钥、支付宝公钥、`seller_id`；
 - 订单有效期：5–30 分钟整数，默认 15；
 - 回调提醒模式：`off`、`user_message` 或 `fake_tool_call`。
 
-沙箱模式不复制密钥到插件配置，运行时直接读取插件目录下、由支付宝 AI 付 Skill 创建并验证的 `.alipay-sandbox.json`，从同一 `appIds[0]` 读取 `appId`、`appPrivatePkcsKey`、`alipayPublicKey` 和 `pid`。该文件已被 Git 忽略。
+托管的 AstrBot 无需也不应修改插件目录：选择 `sandbox` 时，直接在插件配置页填写沙箱应用的四项凭据；选择 `production` 时填写生产应用的四项凭据。两套凭据不要混用。插件不会读取、创建或持久化支付宝 AI 付 Skill 动态生成的 `.alipay-sandbox.json`。
 
 `user_message` 会把以下一次性内容追加为用户消息内容：
 
