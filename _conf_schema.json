@@ -1,0 +1,44 @@
+{
+  "environment": {
+    "description": "运行环境",
+    "type": "string",
+    "options": ["sandbox", "production"],
+    "default": "sandbox",
+    "hint": "sandbox 直接读取插件目录中由支付宝 AI 付 Skill 生成的 .alipay-sandbox.json；production 使用下方配置。"
+  },
+  "app_id": {
+    "description": "支付宝应用 App ID（生产环境）",
+    "type": "string",
+    "default": ""
+  },
+  "app_private_key": {
+    "description": "应用私钥 PKCS#1（生产环境）",
+    "type": "text",
+    "default": "",
+    "secret": true
+  },
+  "alipay_public_key": {
+    "description": "支付宝公钥（生产环境）",
+    "type": "text",
+    "default": "",
+    "secret": true
+  },
+  "seller_id": {
+    "description": "支付宝商户 PID / seller_id（生产环境）",
+    "type": "string",
+    "default": ""
+  },
+  "order_ttl_minutes": {
+    "description": "订单有效期（分钟）",
+    "type": "int",
+    "default": 15,
+    "hint": "只接受 5 到 30 的整数。"
+  },
+  "callback_reminder_mode": {
+    "description": "付款回调的一次性 system_reminder 注入方式",
+    "type": "string",
+    "options": ["off", "user_message", "fake_tool_call"],
+    "default": "user_message",
+    "hint": "off 关闭；user_message 追加到用户消息；fake_tool_call 构造配对的工具调用与工具结果。"
+  }
+}

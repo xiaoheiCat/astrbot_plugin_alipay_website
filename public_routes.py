@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+import asyncio
+import html
+from collections.abc import Awaitable, Callable
+
+from fastapi import Request
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
+from starlette.routing import BaseRoute
+
+
+class PublicRouteRegistrar:
+    """把公开支付路由插到 AstrBot SPA catch-all 之前。"""
+
+    def __init__(self):
+        self._app = None
+        self._routes: list[BaseRoute] = []
+
+    async def register(
+        self,
+        landing: Callable[[Request], Awaitable[Response]],
+        notify: Callable[[Request], Awaitable[Response]],
+        returned: Callable[[Request], Awaitable[Response]],
+    ) -> None:
+        for _ in range(120):
+            from astrbot.dashboard import server
+
+            if server.APP is not None:
+                self._app = server.APP._app
+                break
+            await asyncio.sleep(0.25)
+        if self._app is None:
+            raise RuntimeError("AstrBot Dashboard 服务未就绪，无法注册支付宝公开路由")
+
+        definitions = [
+            ("/alipay", landing, ["GET"], "alipay_landing"),
+            ("/alipay/notify", notify, ["POST"], "alipay_notify"),
+            ("/alipay/return", returned, ["GET"], "alipay_return"),
+        ]
+        for path, endpoint, methods, name in definitions:
+            self._app.add_api_route(
+                path,
+                endpoint,
+                methods=methods,
+                name=name,
+                include_in_schema=False,
+            )
+            route = self._app.router.routes.pop()
+            catchall = next(
+                (
+                    index
+                    for index, existing in enumerate(self._app.router.routes)
+                    if getattr(existing, "path", None) == "/{static_path:path}"
+                ),
+                len(self._app.router.routes),
+            )
+            self._app.router.routes.insert(catchall, route)
+            self._routes.append(route)
+
+    def unregister(self) -> None:
+        if self._app is None:
+            return
+        for route in self._routes:
+            if route in self._app.router.routes:
+                self._app.router.routes.remove(route)
+        self._routes.clear()
+        self._app = None
+
+
+def page(title: str, body: str, *, status_code: int = 200) -> HTMLResponse:
+    document = f"""<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html.escape(title)}</title>
+<style>body{{margin:0;background:#f5f7fa;font:16px/1.6 system-ui;color:#1f2937}}
+.card{{max-width:520px;margin:12vh auto;padding:32px;background:white;border-radius:16px;
+box-shadow:0 8px 30px #0001;text-align:center}}button{{border:0;border-radius:9px;padding:12px 24px;
+background:#1677ff;color:white;font-size:16px}}small{{color:#6b7280}}</style></head>
+<body><main class="card">{body}</main></body></html>"""
+    return HTMLResponse(
+        document,
+        status_code=status_code,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+        },
+    )
+
+
+def payment_form_page(signed_form: str) -> HTMLResponse:
+    # signed_form 由支付宝官方 SDK 生成；仅允许其自动提交到支付宝网关。
+    document = f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>正在前往支付宝</title></head>
+<body><p>正在安全跳转到支付宝收银台…</p>{signed_form}</body></html>"""
+    return HTMLResponse(
+        document,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "Content-Security-Policy": (
+                "default-src 'none'; script-src 'unsafe-inline'; "
+                "form-action https://openapi.alipay.com https://openapi-sandbox.dl.alipaydev.com"
+            ),
+        },
+    )
+
+
+def alipay_ack(success: bool) -> PlainTextResponse:
+    return PlainTextResponse(
+        "success" if success else "fail",
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
