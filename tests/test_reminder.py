@@ -26,39 +26,54 @@ class FakeProviderRequest:
         self.contexts = []
 
 
-class FakeToolSet:
-    def __init__(self):
-        self.tools = []
+class FakeTool:
+    def __init__(self, name: str):
+        self.name = name
 
-    def add_tool(self, tool) -> None:
-        self.tools.append(tool)
+
+class FakeToolSet:
+    def __init__(self, tools=None):
+        self.tools = list(tools or [])
+
+    def remove_tool(self, name: str) -> None:
+        self.tools = [tool for tool in self.tools if tool.name != name]
+
+
+class FakeMessageChain:
+    def __init__(self):
+        self.text = ""
+
+    def message(self, text: str):
+        self.text = text
+        return self
 
 
 class FakeEvent:
     def __init__(self, **kwargs):
-        self._has_send_oper = False
         self.kwargs = kwargs
 
 
 class FakeContext:
     conversation_manager = object()
 
+    def __init__(self, *, send_result: bool):
+        self.send_result = send_result
+        self.sent_messages = []
+
     def get_config(self, *, umo):
         return {}
 
-    def get_llm_tool_manager(self):
-        return SimpleNamespace(get_builtin_tool=lambda tool: tool)
+    async def send_message(self, session, message):
+        self.sent_messages.append((session, message))
+        return self.send_result
 
 
 class FakeRunner:
-    def __init__(self, event, *, sent: bool, final_response):
-        self.event = event
-        self.sent = sent
+    def __init__(self, final_response):
         self.final_response = final_response
 
     async def step_until_done(self, max_steps):
         assert max_steps == 30
-        self.event._has_send_oper = self.sent
         if False:
             yield None
 
@@ -92,7 +107,6 @@ def reminder_module(monkeypatch):
             ToolCall=type("ToolCall", (Box,), {"FunctionBody": Box}),
             ToolCallMessageSegment=Box,
         ),
-        "astrbot.core.agent.tool": _module("astrbot.core.agent.tool", ToolSet=FakeToolSet),
         "astrbot.core.astr_main_agent": _module(
             "astrbot.core.astr_main_agent",
             MainAgentBuildConfig=Box,
@@ -101,6 +115,10 @@ def reminder_module(monkeypatch):
         ),
         "astrbot.core.cron": _module("astrbot.core.cron"),
         "astrbot.core.cron.events": _module("astrbot.core.cron.events", CronMessageEvent=FakeEvent),
+        "astrbot.core.message": _module("astrbot.core.message"),
+        "astrbot.core.message.message_event_result": _module(
+            "astrbot.core.message.message_event_result", MessageChain=FakeMessageChain
+        ),
         "astrbot.core.platform": _module("astrbot.core.platform"),
         "astrbot.core.platform.message_session": _module(
             "astrbot.core.platform.message_session",
@@ -115,10 +133,6 @@ def reminder_module(monkeypatch):
             "astrbot.core.provider.entities",
             ProviderRequest=FakeProviderRequest,
             ToolCallsResult=Box,
-        ),
-        "astrbot.core.tools": _module("astrbot.core.tools"),
-        "astrbot.core.tools.message_tools": _module(
-            "astrbot.core.tools.message_tools", SendMessageToUserTool=Box
         ),
         "astrbot.core.utils": _module("astrbot.core.utils"),
         "astrbot.core.utils.config_number": _module(
@@ -137,68 +151,91 @@ def reminder_module(monkeypatch):
     async def get_conversation(**kwargs):
         return SimpleNamespace(history="[]")
 
+    persisted = []
+
     async def persist(*args, **kwargs):
-        return None
+        persisted.append(kwargs)
 
     monkeypatch.setattr(module, "_get_session_conv", get_conversation)
     monkeypatch.setattr(module, "persist_agent_history", persist)
+    module.persisted_calls = persisted
     return module
 
 
-async def _run_reminder(reminder_module, monkeypatch, *, sent: bool, final_response):
+async def _run_reminder(
+    reminder_module,
+    monkeypatch,
+    *,
+    send_result: bool,
+    final_response,
+    mode: str = "user_message",
+):
     captured = {}
 
     async def build_agent(*, event, plugin_context, config, req):
-        captured["request"] = req
-        return SimpleNamespace(
-            agent_runner=FakeRunner(event, sent=sent, final_response=final_response)
+        req.func_tool = FakeToolSet(
+            [FakeTool("send_message_to_user"), FakeTool("verify_alipay_bill")]
         )
+        captured["request"] = req
+        return SimpleNamespace(agent_runner=FakeRunner(final_response))
 
     monkeypatch.setattr(reminder_module, "build_main_agent", build_agent)
+    context = FakeContext(send_result=send_result)
     delivered = await reminder_module.inject_payment_reminder(
-        FakeContext(),
+        context,
         "platform:FriendMessage:user",
         "AIP20260901120000000000000000",
-        "user_message",
+        mode,
     )
-    return delivered, captured["request"]
+    return delivered, captured["request"], context
 
 
 @pytest.mark.asyncio
-async def test_successful_tool_send_is_reported_as_delivered(reminder_module, monkeypatch) -> None:
-    delivered, request = await _run_reminder(
+@pytest.mark.parametrize("mode", ["user_message", "fake_tool_call"])
+async def test_plain_final_response_is_sent_directly(reminder_module, monkeypatch, mode) -> None:
+    delivered, request, context = await _run_reminder(
         reminder_module,
         monkeypatch,
-        sent=True,
-        final_response=SimpleNamespace(completion_text="已处理"),
+        send_result=True,
+        final_response=SimpleNamespace(role="assistant", completion_text="用户已完成付款"),
+        mode=mode,
     )
 
     assert delivered is True
-    assert "必须调用 send_message_to_user" in request.system_prompt
-    assert "session 参数留空" in request.system_prompt
+    assert [tool.name for tool in request.func_tool.tools] == ["verify_alipay_bill"]
+    assert "send_message_to_user" not in request.system_prompt
+    assert context.sent_messages[0][1].text == "用户已完成付款"
+    assert len(reminder_module.persisted_calls) == 1
+    assert "用户已完成付款" in reminder_module.persisted_calls[0]["summary_note"]
 
 
 @pytest.mark.asyncio
-async def test_plain_agent_response_is_not_mistaken_for_delivery(
+async def test_empty_final_response_is_retried_without_sending(
     reminder_module, monkeypatch
 ) -> None:
-    delivered, _ = await _run_reminder(
+    delivered, _, context = await _run_reminder(
         reminder_module,
         monkeypatch,
-        sent=False,
-        final_response=SimpleNamespace(completion_text="用户已完成付款"),
+        send_result=True,
+        final_response=SimpleNamespace(role="assistant", completion_text="  "),
     )
 
     assert delivered is False
+    assert context.sent_messages == []
+    assert reminder_module.persisted_calls == []
 
 
 @pytest.mark.asyncio
-async def test_failed_tool_send_is_not_mistaken_for_delivery(reminder_module, monkeypatch) -> None:
-    delivered, _ = await _run_reminder(
+async def test_platform_send_failure_is_retried_without_persisting(
+    reminder_module, monkeypatch
+) -> None:
+    delivered, _, context = await _run_reminder(
         reminder_module,
         monkeypatch,
-        sent=False,
-        final_response=None,
+        send_result=False,
+        final_response=SimpleNamespace(role="assistant", completion_text="用户已完成付款"),
     )
 
     assert delivered is False
+    assert context.sent_messages[0][1].text == "用户已完成付款"
+    assert reminder_module.persisted_calls == []

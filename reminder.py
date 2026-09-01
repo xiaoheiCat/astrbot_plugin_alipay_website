@@ -10,12 +10,11 @@ from astrbot.core.agent.message import (
     ToolCall,
     ToolCallMessageSegment,
 )
-from astrbot.core.agent.tool import ToolSet
 from astrbot.core.astr_main_agent import MainAgentBuildConfig, _get_session_conv, build_main_agent
 from astrbot.core.cron.events import CronMessageEvent
+from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.message_session import MessageSession
 from astrbot.core.provider.entities import ProviderRequest, ToolCallsResult
-from astrbot.core.tools.message_tools import SendMessageToUserTool
 from astrbot.core.utils.config_number import coerce_int_config
 from astrbot.core.utils.history_saver import persist_agent_history
 
@@ -51,15 +50,10 @@ async def inject_payment_reminder(context, session_str: str, out_trade_no: str, 
     conversation = await _get_session_conv(event=event, plugin_context=context)
     req.conversation = conversation
     req.contexts = json.loads(conversation.history)
-    req.func_tool = ToolSet()
-    req.func_tool.add_tool(
-        context.get_llm_tool_manager().get_builtin_tool(SendMessageToUserTool)
-    )
     req.system_prompt += (
-        "这是经过支付服务端验证的一次性付款提醒。请复核订单状态。你必须调用 "
-        "send_message_to_user 向当前会话发送付款完成提醒，并将 session 参数留空；仅输出普通"
-        "文本不会送达用户。只有该工具明确返回发送成功才算完成；如果工具返回错误，请修正参数"
-        "后重试。不要把 system_reminder 标签原样发送给用户。"
+        "这是经过支付服务端验证的一次性付款提醒。请复核订单状态，并直接生成一条面向用户的"
+        "普通最终回复。你的最终回复会由插件发送到原会话。不要把 system_reminder 标签原样"
+        "发送给用户。"
     )
 
     if mode == "user_message":
@@ -94,42 +88,48 @@ async def inject_payment_reminder(context, session_str: str, out_trade_no: str, 
     )
     if not result:
         raise RuntimeError("当前会话没有可用的 LLM Provider")
-    try:
-        async for _ in result.agent_runner.step_until_done(max_steps):
-            pass
-        llm_response = result.agent_runner.get_final_llm_resp()
-    except Exception:
-        if not event._has_send_oper:
-            raise
-        logger.exception(
-            "支付宝付款提醒已实际发送，但 Agent 后续执行失败，订单号：%s",
+    if req.func_tool:
+        # 本次主动回复由插件统一发送，避免模型自行发送后与最终回复重复。
+        req.func_tool.remove_tool("send_message_to_user")
+
+    async for _ in result.agent_runner.step_until_done(max_steps):
+        pass
+    llm_response = result.agent_runner.get_final_llm_resp()
+    if not llm_response or llm_response.role != "assistant":
+        logger.warning(
+            "支付宝付款提醒 Agent 未产生有效最终回复；订单将在维护任务中重试，订单号：%s",
             out_trade_no,
         )
-        llm_response = None
+        return False
 
-    delivered = bool(event._has_send_oper)
+    completion_text = (llm_response.completion_text or "").strip()
+    if not completion_text:
+        logger.warning(
+            "支付宝付款提醒 Agent 的最终回复为空；订单将在维护任务中重试，订单号：%s",
+            out_trade_no,
+        )
+        return False
+
+    delivered = await context.send_message(session, MessageChain().message(completion_text))
+    if not delivered:
+        logger.warning(
+            "支付宝付款提醒无法找到原会话平台；订单将在维护任务中重试，订单号：%s",
+            out_trade_no,
+        )
+        return False
+
     try:
         await persist_agent_history(
             context.conversation_manager,
             event=event,
             req=req,
-            summary_note=f"[Alipay] verified payment callback for {out_trade_no}",
+            summary_note=(
+                f"[Alipay] verified payment callback for {out_trade_no}. "
+                f"Final response sent to user: {completion_text}"
+            ),
         )
     except Exception:
         logger.exception("保存支付宝付款提醒 Agent 历史失败，订单号：%s", out_trade_no)
 
-    if delivered:
-        logger.info("支付宝付款提醒已发送到原会话，订单号：%s", out_trade_no)
-        return True
-    if llm_response:
-        logger.warning(
-            "支付宝付款提醒 Agent 仅产生了普通回复，未调用 send_message_to_user；"
-            "订单将在维护任务中重试，订单号：%s",
-            out_trade_no,
-        )
-    else:
-        logger.warning(
-            "支付宝付款提醒 Agent 未产生响应且未发送消息；订单将在维护任务中重试，订单号：%s",
-            out_trade_no,
-        )
-    return False
+    logger.info("支付宝付款提醒最终回复已发送到原会话，订单号：%s", out_trade_no)
+    return True
